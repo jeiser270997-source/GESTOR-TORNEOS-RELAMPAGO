@@ -50,6 +50,31 @@ npm install
 npm run dev
 ```
 
+### Con Docker Compose (sin instalar librerías localmente)
+```bash
+docker compose up --build
+```
+
+Servicios:
+- Frontend: http://localhost:5173
+- Backend: http://localhost:3001
+
+Comandos útiles:
+```bash
+# Levantar en segundo plano
+docker compose up -d --build
+
+# Ver logs
+docker compose logs -f backend frontend
+
+# Detener
+docker compose down
+```
+
+Notas:
+- La base SQLite queda persistida en el volumen Docker `backend_db`.
+- El frontend usa `VITE_API_URL` (por defecto `http://localhost:3001/api`).
+
 ## Notas Técnicas 📝
 
 - El sistema de normalización de rosters detecta automáticamente:
