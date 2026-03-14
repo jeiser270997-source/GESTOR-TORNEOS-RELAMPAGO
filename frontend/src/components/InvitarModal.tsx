@@ -9,7 +9,7 @@ interface InvitarModalProps {
   torneoNumero: number;
 }
 
-const HORAS_FIN_DE_SEMANA = ['10:00','12:00','14:00','16:00','18:00','19:00','19:30','20:00'];
+const HORAS_FIN_DE_SEMANA = ['12:00','14:00','16:00','18:00','20:00'];
 const HORA_ENTRE_SEMANA = '19:30';
 
 const format12h = (hora24: string) => {
