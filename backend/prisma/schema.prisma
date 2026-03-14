@@ -1,0 +1,60 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Torneo {
+  id                String   @id @default(cuid())
+  numero_interno    Int      @unique
+  fecha_inicio      DateTime
+  estado            String   @default("creado")
+  horarios_ocupados String   @default("[]") // Workaround for String[] in sqlite, store JSON
+  equipos           Equipo[]
+  juegos            Juego[]
+}
+
+model Equipo {
+  id                String   @id @default(cuid())
+  nombre            String
+  numero_delegado   String
+  pago_confirmado   Boolean  @default(false)
+  jugadores_activos String   @default("[]") // Workaround for String[] in sqlite, store JSON
+  torneo_id         String
+  torneo            Torneo   @relation(fields: [torneo_id], references: [id])
+  roster            Jugador[]
+}
+
+model Jugador {
+  id                String   @id @default(cuid())
+  nombre            String
+  numero_camiseta   String?
+  equipo_id         String
+  equipo            Equipo   @relation(fields: [equipo_id], references: [id])
+}
+
+model Juego {
+  id                  String   @id @default(cuid())
+  ronda               String   @default("semifinal_1")
+  equipo_local_id     String
+  equipo_visitante_id String
+  fecha               DateTime
+  hora                String
+  estado              String   @default("programado")
+  torneo_id           String
+  torneo              Torneo   @relation(fields: [torneo_id], references: [id])
+}
+
+model Contacto {
+  id                    String   @id @default(cuid())
+  nombre_equipo         String   @unique
+  numero_delegado       String
+  torneos_participados  String   @default("[]") // Workaround for String[] in sqlite, store JSON
+  total_participaciones Int      @default(1)
+}
