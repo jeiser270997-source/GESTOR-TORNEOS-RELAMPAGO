@@ -9,10 +9,6 @@ import html2pdf from 'html2pdf.js';
 import EditTeamModal from '../components/EditTeamModal';
 import EditFinalModal from '../components/EditFinalModal';
 
-// Las fechas ya vienen correctas desde el backend (convertToUTC en TournamentBrackets)
-// Solo parseamos normalmente
-const parseDate = (dateString: string) => new Date(dateString);
-
 const format12h = (hora24: string): string => {
   if (!hora24 || !hora24.includes(':')) return hora24;
   const [h, m] = hora24.split(':').map(Number);
@@ -112,15 +108,29 @@ const TournamentDetail = () => {
       return;
     }
 
-    const filas = (roster: ReturnType<typeof getTeamRoster>) =>
-      Array.from({ length: 25 }).map((_, i) => {
+    const filas = (roster: ReturnType<typeof getTeamRoster>) => {
+      // Generar filas enumeradas (1, 2, 3, 4...)
+      const filasEnumeradas = Array.from({ length: 25 }).map((_, i) => {
         const p = roster[i];
         const bg = i % 2 === 0 ? '#ffffff' : '#f5f5f5';
+        const numeroEnumerado = i + 1; // Enumera 1, 2, 3, etc
         return `<tr style="background:${bg};">
-          <td style="padding:1.2mm 2mm;text-align:center;font-size:9px;font-weight:700;border-bottom:1px solid #e5e5e5;">${p?.numero_camiseta || ''}</td>
+          <td style="padding:1.2mm 2mm;text-align:center;font-size:9px;font-weight:700;border-bottom:1px solid #e5e5e5;">${numeroEnumerado}</td>
           <td style="padding:1.2mm 2mm;text-align:left;font-size:9px;border-bottom:1px solid #e5e5e5;">${p?.nombre?.toUpperCase() || ''}</td>
         </tr>`;
       }).join('');
+      
+      // Contar jugadores reales (no filas vacías)
+      const totalJugadores = roster.length;
+      
+      // Agregar fila de TOTAL al final
+      const filaTotal = `<tr style="background:#e8e8e8;font-weight:bold;">
+        <td style="padding:1.5mm 2mm;text-align:center;font-size:9px;font-weight:700;border-top:2px solid #000;border-bottom:1px solid #999;">TOTAL</td>
+        <td style="padding:1.5mm 2mm;text-align:left;font-size:9px;border-top:2px solid #000;border-bottom:1px solid #999;">${totalJugadores} Jugadores</td>
+      </tr>`;
+      
+      return filasEnumeradas + filaTotal;
+    };
 
     const printDiv = document.createElement('div');
     printDiv.innerHTML = `
@@ -148,7 +158,7 @@ const TournamentDetail = () => {
             ${local.toUpperCase()} vs ${visitante.toUpperCase()}
           </div>
           <div style="font-size:10px;color:#333;">
-            ${format(parseDate(juego.fecha), 'eeee dd MMMM yyyy', { locale: es }).toUpperCase()} · ${format12h(juego.hora)}
+            ${format(new Date(juego.fecha), 'eeee dd MMMM yyyy', { locale: es }).toUpperCase()} · ${format12h(juego.hora)}
           </div>
           <div style="font-size:9px;color:#555;margin-top:1mm;">
             📍 Polideportivo Sur · Envigado, Antioquia
@@ -166,7 +176,7 @@ const TournamentDetail = () => {
             <table style="width:100%;border-collapse:collapse;">
               <thead>
                 <tr style="background:#333;color:#fff;">
-                  <th style="width:12mm;padding:1.5mm;font-size:8px;text-align:center;">#</th>
+                  <th style="width:12mm;padding:1.5mm;font-size:8px;text-align:center;">NO.</th>
                   <th style="padding:1.5mm;font-size:8px;text-align:left;">JUGADOR</th>
                 </tr>
               </thead>
@@ -182,7 +192,7 @@ const TournamentDetail = () => {
             <table style="width:100%;border-collapse:collapse;">
               <thead>
                 <tr style="background:#333;color:#fff;">
-                  <th style="width:12mm;padding:1.5mm;font-size:8px;text-align:center;">#</th>
+                  <th style="width:12mm;padding:1.5mm;font-size:8px;text-align:center;">NO.</th>
                   <th style="padding:1.5mm;font-size:8px;text-align:left;">JUGADOR</th>
                 </tr>
               </thead>
@@ -238,7 +248,7 @@ const TournamentDetail = () => {
       const pageH = pdf.internal.pageSize.getHeight();
       pdf.addImage(imgData, 'JPEG', 0, 0, pageW, pageH);
       pdf.save(`Roster_${juego.ronda}_${local}_vs_${visitante}.pdf`);
-      alert('PDF generado correctamente — 1 hoja con 25 jugadores.');
+      alert('PDF generado correctamente con enumeración y totales.');
     } catch (err) {
       console.error(err);
       alert('Error al generar PDF.');
@@ -505,7 +515,7 @@ const TournamentDetail = () => {
                   <div className="text-white font-black text-lg">{getTeamName(juego.equipo_visitante_id)}</div>
                 </div>
                 <div className="pt-2 text-neutral-500 text-xs font-bold">
-                  {isDefined && `${format(parseDate(juego.fecha), 'dd MMM', { locale: es }).toUpperCase()} · ${format12h(juego.hora)}`}
+                  {isDefined && `${format(new Date(juego.fecha), 'dd MMM', { locale: es }).toUpperCase()} · ${format12h(juego.hora)}`}
                 </div>
                 <div className="pt-2 space-y-2">
                   <button onClick={() => copyFlyerText(juego)} disabled={!isDefined}
@@ -548,7 +558,7 @@ const TournamentDetail = () => {
               <div className="text-[8px] font-black italic my-0.5" style={{ color: '#fbbf24' }}>VS</div>
               <div className="text-xs font-black text-white">{getTeamName(promoTab.juego.equipo_visitante_id)}</div>
               <div className="mt-2 text-[8px] text-neutral-400 uppercase">
-                {format(parseDate(promoTab.juego.fecha), 'eeee dd MMMM', { locale: es })}
+                {format(new Date(promoTab.juego.fecha), 'eeee dd MMMM', { locale: es })}
               </div>
               <div className="text-xs font-black text-white">{format12h(promoTab.juego.hora)}</div>
               <div className="mt-2 text-[7px] text-neutral-500">📍 POLIDEPORTIVO SUR ENVIGADO</div>
