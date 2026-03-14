@@ -9,6 +9,10 @@ import html2pdf from 'html2pdf.js';
 import EditTeamModal from '../components/EditTeamModal';
 import EditFinalModal from '../components/EditFinalModal';
 
+// Las fechas ya vienen correctas desde el backend (convertToUTC en TournamentBrackets)
+// Solo parseamos normalmente
+const parseDate = (dateString: string) => new Date(dateString);
+
 const format12h = (hora24: string): string => {
   if (!hora24 || !hora24.includes(':')) return hora24;
   const [h, m] = hora24.split(':').map(Number);
@@ -144,7 +148,7 @@ const TournamentDetail = () => {
             ${local.toUpperCase()} vs ${visitante.toUpperCase()}
           </div>
           <div style="font-size:10px;color:#333;">
-            ${format(new Date(juego.fecha), 'eeee dd MMMM yyyy', { locale: es }).toUpperCase()} · ${format12h(juego.hora)}
+            ${format(parseDate(juego.fecha), 'eeee dd MMMM yyyy', { locale: es }).toUpperCase()} · ${format12h(juego.hora)}
           </div>
           <div style="font-size:9px;color:#555;margin-top:1mm;">
             📍 Polideportivo Sur · Envigado, Antioquia
@@ -501,7 +505,7 @@ const TournamentDetail = () => {
                   <div className="text-white font-black text-lg">{getTeamName(juego.equipo_visitante_id)}</div>
                 </div>
                 <div className="pt-2 text-neutral-500 text-xs font-bold">
-                  {isDefined && `${format(new Date(juego.fecha), 'dd MMM', { locale: es }).toUpperCase()} · ${format12h(juego.hora)}`}
+                  {isDefined && `${format(parseDate(juego.fecha), 'dd MMM', { locale: es }).toUpperCase()} · ${format12h(juego.hora)}`}
                 </div>
                 <div className="pt-2 space-y-2">
                   <button onClick={() => copyFlyerText(juego)} disabled={!isDefined}
@@ -544,7 +548,7 @@ const TournamentDetail = () => {
               <div className="text-[8px] font-black italic my-0.5" style={{ color: '#fbbf24' }}>VS</div>
               <div className="text-xs font-black text-white">{getTeamName(promoTab.juego.equipo_visitante_id)}</div>
               <div className="mt-2 text-[8px] text-neutral-400 uppercase">
-                {format(new Date(promoTab.juego.fecha), 'eeee dd MMMM', { locale: es })}
+                {format(parseDate(promoTab.juego.fecha), 'eeee dd MMMM', { locale: es })}
               </div>
               <div className="text-xs font-black text-white">{format12h(promoTab.juego.hora)}</div>
               <div className="mt-2 text-[7px] text-neutral-500">📍 POLIDEPORTIVO SUR ENVIGADO</div>

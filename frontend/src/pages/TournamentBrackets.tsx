@@ -54,6 +54,12 @@ const TournamentBrackets = () => {
     });
   };
 
+  // Función para convertir fecha local a UTC correctamente
+  const convertToUTC = (dateString: string) => {
+  const date = new Date(dateString + 'T05:00:00Z');
+  return date.toISOString();
+};
+
   const handleSave = async () => {
     if (!torneo || torneo.equipos.length < 4) return;
     
@@ -77,21 +83,21 @@ const TournamentBrackets = () => {
         ronda: 'semifinal_1',
         equipo_local_id: semifinal_1_local,
         equipo_visitante_id: semifinal_1_visitante,
-        fecha: schedules.semifinal_1.fecha,
+        fecha: convertToUTC(schedules.semifinal_1.fecha),
         hora: schedules.semifinal_1.hora,
       },
       {
         ronda: 'semifinal_2',
         equipo_local_id: semifinal_2_local,
         equipo_visitante_id: semifinal_2_visitante,
-        fecha: schedules.semifinal_2.fecha,
+        fecha: convertToUTC(schedules.semifinal_2.fecha),
         hora: schedules.semifinal_2.hora,
       },
       {
         ronda: 'final',
         equipo_local_id: matchups.final_local || 'TBD',
         equipo_visitante_id: matchups.final_visitante || 'TBD',
-        fecha: schedules.final.fecha,
+        fecha: convertToUTC(schedules.final.fecha),
         hora: schedules.final.hora,
       }
     ];
