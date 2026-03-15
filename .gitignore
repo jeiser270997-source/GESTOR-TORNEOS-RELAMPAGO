@@ -1,36 +1,6 @@
-# Dependencies
 node_modules/
-/.pnp
-.pnp.js
-
-# Testing
-/coverage
-
-# Production
-/dist
-/build
-
-# Misc
-.DS_Store
 .env
-.env.local
-.env.*.local
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-lerna-debug.log*
-
-# Database
 *.db
-*.sqlite
-*.sqlite3
-
-# Prisma
-prisma/*.db
+*.db-journal
+dist/
+.DS_Store

@@ -1,141 +1,137 @@
 # 🚀 Guía de Despliegue — Gestor Torneos Relámpago
 
-## ¿Cómo funciona la app?
+## Arquitectura
 
 ```
-FRONTEND (React/Vite) ──► BACKEND (Node/Express) ──► SQLite (base de datos)
-     Vercel (gratis)           Railway (gratis)          en Railway
+Vercel (frontend gratis)
+    ↓
+Railway (backend gratis)
+    ↓
+Supabase (PostgreSQL gratis)
 ```
 
 ---
 
-## OPCIÓN 1: Railway + Vercel (RECOMENDADO - 100% gratis)
+## ⚠️ NOTA IMPORTANTE
 
-### Paso 1 — Subir el código a GitHub
+El proyecto usa **SQLite localmente** y **PostgreSQL en producción** (Supabase).
+Antes de desplegar en Railway debes cambiar `backend/prisma/schema.prisma`:
+- Línea `provider = "sqlite"` → `provider = "postgresql"`
+- Todos los campos `String @default("[]")` → `String[] @default([])`
+- Agregar `directUrl = env("DIRECT_URL")` al datasource
 
-1. Crea una cuenta en [github.com](https://github.com) si no tienes
-2. Crea un repositorio nuevo llamado `gestor-torneos`
-3. Sube todo el contenido de esta carpeta al repo
+O simplemente sigue la guía paso a paso abajo.
 
-### Paso 2 — Desplegar el BACKEND en Railway
+---
 
-1. Ve a [railway.app](https://railway.app) y crea cuenta con tu GitHub
-2. Click en **New Project** → **Deploy from GitHub repo**
-3. Selecciona tu repositorio `gestor-torneos`
-4. Railway detectará el `Dockerfile` del backend automáticamente
-5. En la configuración del servicio, agrega estas **variables de entorno**:
+## PASO 1 — Crear la base de datos en Supabase
+
+1. Ve a **[supabase.com](https://supabase.com)** → crear cuenta gratis
+2. **New Project** → ponle nombre `gestor-torneos`, elige región **US East**
+3. Anota la contraseña que creas — la necesitarás
+4. Espera ~2 minutos que termine de crear
+5. Ve a **Settings → Database**
+6. Baja hasta **Connection string** → selecciona **URI**
+7. Copia las **dos URLs**:
+
+   **Transaction pooler** (para `DATABASE_URL`):
    ```
-   DATABASE_URL=file:./prisma/dev.db
-   PORT=3001
-   FRONTEND_URL=https://TU-APP.vercel.app  (lo agregas después)
+   postgresql://postgres.xxxx:[PASSWORD]@aws-0-us-east-1.pooler.supabase.com:6543/postgres?pgbouncer=true
    ```
-6. En **Settings → Root Directory** escribe: `backend`
-7. Click **Deploy** — espera ~2 minutos
-8. Copia la URL que te da Railway, algo como: `https://gestor-torneos-production.up.railway.app`
 
-### Paso 3 — Desplegar el FRONTEND en Vercel
+   **Session pooler / Direct** (para `DIRECT_URL`):
+   ```
+   postgresql://postgres.xxxx:[PASSWORD]@aws-0-us-east-1.pooler.supabase.com:5432/postgres
+   ```
 
-1. Ve a [vercel.com](https://vercel.com) y crea cuenta con GitHub
-2. Click en **New Project** → importa tu repo `gestor-torneos`
-3. En configuración:
+---
+
+## PASO 2 — Subir el código a GitHub
+
+Si no lo has hecho:
+```bash
+git init
+git add .
+git commit -m "inicial"
+git remote add origin https://github.com/TU-USUARIO/gestor-torneos.git
+git push -u origin main
+```
+
+---
+
+## PASO 3 — Desplegar el Backend en Railway
+
+1. Ve a **[railway.app](https://railway.app)** → crear cuenta con GitHub
+2. **New Project → Deploy from GitHub repo**
+3. Selecciona tu repositorio
+4. Railway detectará el `Dockerfile` automáticamente
+5. Ve a **Settings → General → Root Directory** y escribe: `backend`
+6. Ve a **Variables** y agrega:
+
+| Variable | Valor |
+|----------|-------|
+| `DATABASE_URL` | La URL de Supabase (Transaction pooler) |
+| `DIRECT_URL` | La URL de Supabase (Direct/Session) |
+| `PORT` | `3001` |
+| `FRONTEND_URL` | (lo agregas después con la URL de Vercel) |
+
+7. Click **Deploy** — espera ~3 minutos
+8. Railway ejecutará automáticamente `npx prisma migrate deploy` y creará todas las tablas en Supabase
+9. Copia la URL pública que te da Railway, ej: `https://gestor-torneos.up.railway.app`
+10. Verifica que funciona: abre `https://gestor-torneos.up.railway.app/health` → debe mostrar `{"status":"ok"}`
+
+---
+
+## PASO 4 — Desplegar el Frontend en Vercel
+
+1. Ve a **[vercel.com](https://vercel.com)** → crear cuenta con GitHub
+2. **New Project** → importa tu repositorio
+3. Configura:
    - **Root Directory**: `frontend`
    - **Build Command**: `npm run build`
    - **Output Directory**: `dist`
-4. Agrega esta **variable de entorno**:
-   ```
-   VITE_API_URL=https://TU-URL-DE-RAILWAY.up.railway.app/api
-   ```
-   (reemplaza con la URL que copiaste en el Paso 2)
+4. Agrega variable de entorno:
+
+| Variable | Valor |
+|----------|-------|
+| `VITE_API_URL` | `https://TU-URL-RAILWAY.up.railway.app/api` |
+
 5. Click **Deploy** — espera ~1 minuto
-6. Copia la URL de Vercel (ej: `https://gestor-torneos.vercel.app`)
-
-### Paso 4 — Conectar frontend con backend
-
-1. Vuelve a Railway
-2. Agrega/actualiza la variable `FRONTEND_URL` con tu URL de Vercel
-3. Haz **Redeploy**
-
-✅ ¡Listo! Tu app está en línea.
+6. Copia la URL de Vercel, ej: `https://gestor-torneos.vercel.app`
 
 ---
 
-## OPCIÓN 2: Todo en Railway (más simple)
+## PASO 5 — Conectar frontend con backend
 
-Railway puede correr el frontend y backend juntos con Docker Compose.
+1. Vuelve a **Railway → Variables**
+2. Agrega/actualiza: `FRONTEND_URL` = `https://gestor-torneos.vercel.app`
+3. Railway hace redeploy automático
 
-1. En Railway, selecciona tu repo
-2. Railway detectará el `docker-compose.yml`
-3. Configura las variables de entorno como arriba
-4. Listo
-
----
-
-## Problema de la base de datos en producción
-
-⚠️ **IMPORTANTE**: SQLite en Railway se resetea si el servicio se reinicia (porque el filesystem no es persistente en el plan gratuito).
-
-### Solución recomendada (gratis):
-
-**Railway ofrece PostgreSQL gratis.** Cambiar a PostgreSQL toma 5 minutos:
-
-1. En Railway, agrega un servicio **PostgreSQL** a tu proyecto
-2. Railway te dará una variable `DATABASE_URL` automáticamente
-3. En el `schema.prisma`, cambia:
-   ```prisma
-   datasource db {
-     provider = "postgresql"   // era "sqlite"
-     url      = env("DATABASE_URL")
-   }
-   ```
-4. También en `schema.prisma`, cambia el tipo `String` de los campos JSON a usar el tipo nativo de arrays de Postgres (opcional pero mejor)
-5. Haz `npx prisma migrate deploy` desde Railway
+✅ **¡Listo! Tu app está en línea.**
 
 ---
 
-## Variables de entorno resumen
+## Desarrollo local
 
-### Backend (Railway):
-| Variable | Valor |
-|----------|-------|
-| `DATABASE_URL` | `file:./prisma/dev.db` (SQLite) o la URL de PostgreSQL |
-| `PORT` | `3001` |
-| `FRONTEND_URL` | `https://tu-app.vercel.app` |
-
-### Frontend (Vercel):
-| Variable | Valor |
-|----------|-------|
-| `VITE_API_URL` | `https://tu-backend.up.railway.app/api` |
-
----
-
-## Comandos útiles para desarrollo local
-
-```bash
-# Backend
-cd backend
-npm install
-npx prisma generate
-npx prisma db push
-npm run dev
-
-# Frontend (en otra terminal)
-cd frontend
-npm install
-npm run dev
-```
-
-O con Docker:
+Para correr localmente (usa SQLite, no necesita Supabase):
 ```bash
 docker-compose up
 ```
 
+Abre: **http://localhost:5173**
+
+Para parar:
+```bash
+docker-compose down
+```
+
 ---
 
-## ¿Cuánto cuesta?
+## Costos
 
 | Servicio | Plan | Costo |
 |----------|------|-------|
-| Railway (backend) | Hobby (gratis) | $0/mes con $5 crédito inicial |
-| Vercel (frontend) | Hobby (gratis) | $0/mes |
-| Dominio propio | Opcional | ~$10/año |
+| Vercel | Hobby | **Gratis** |
+| Railway | Hobby | **Gratis** ($5 crédito inicial) |
+| Supabase | Free | **Gratis** (500MB, suficiente) |
 
