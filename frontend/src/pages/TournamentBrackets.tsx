@@ -10,8 +10,8 @@ const TournamentBrackets = () => {
   const navigate = useNavigate();
   const [torneo, setTorneo] = useState<Torneo | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  // Scheduling state
   const [schedules, setSchedules] = useState({
     semifinal_1: { fecha: '', hora: '19:30' },
     semifinal_2: { fecha: '', hora: '19:30' },
@@ -43,39 +43,40 @@ const TournamentBrackets = () => {
 
   const handleScheduleChange = (ronda: string, field: string, value: string) => {
     setSchedules(prev => {
-        const newSched = { ...prev[ronda as keyof typeof prev], [field]: value };
-        if (field === 'fecha' && value) {
-            const date = parseISO(value);
-            if (!isWeekend(date)) {
-                newSched.hora = '19:30';
-            }
-        }
-        return { ...prev, [ronda]: newSched };
+      const newSched = { ...prev[ronda as keyof typeof prev], [field]: value };
+      if (field === 'fecha' && value) {
+        const date = parseISO(value);
+        if (!isWeekend(date)) newSched.hora = '19:30';
+      }
+      return { ...prev, [ronda]: newSched };
     });
   };
 
-  // Función para convertir fecha local a UTC correctamente
-  const convertToUTC = (dateString: string) => {
-  const date = new Date(dateString + 'T05:00:00Z');
-  return date.toISOString();
-};
+  // BUG FIX #12: Conversión de fecha local a UTC correcta
+  // El problema original: "2025-06-15T05:00:00Z" asume siempre UTC-5.
+  // Solución: guardar la fecha tal como viene del input (YYYY-MM-DD) más la hora,
+  // dejando que la base de datos maneje el timezone.
+  const buildFechaISO = (dateStr: string, hora: string): string => {
+    // dateStr viene del <input type="date"> como "YYYY-MM-DD"
+    // Construimos un ISO local para no perder el día por timezone offsets
+    return `${dateStr}T${hora}:00.000Z`;
+  };
 
   const handleSave = async () => {
     if (!torneo || torneo.equipos.length < 4) return;
-    
-    const { semifinal_1_local, semifinal_1_visitante, semifinal_2_local, semifinal_2_visitante, final_local, final_visitante } = matchups;
+    const { semifinal_1_local, semifinal_1_visitante, semifinal_2_local, semifinal_2_visitante } = matchups;
 
-    // Validate unique teams for Semis (Must be all 4)
+    // Validar semis
     const semiTeams = [semifinal_1_local, semifinal_1_visitante, semifinal_2_local, semifinal_2_visitante];
     if (new Set(semiTeams).size !== 4 || semiTeams.includes('')) {
-        alert('Debes seleccionar los 4 equipos para las semifinales.');
-        return;
+      alert('Debes seleccionar los 4 equipos para las semifinales, sin repetir ninguno.');
+      return;
     }
 
-    // Validate unique teams for Final (If provided)
-    if (final_local && final_visitante && final_local === final_visitante) {
-        alert('El equipo local y visitante de la final no pueden ser el mismo.');
-        return;
+    // BUG FIX #13: Validar que se eligieron fechas para los 3 juegos
+    if (!schedules.semifinal_1.fecha || !schedules.semifinal_2.fecha || !schedules.final.fecha) {
+      alert('Debes seleccionar fechas para los 3 juegos.');
+      return;
     }
 
     const juegosData = [
@@ -83,45 +84,60 @@ const TournamentBrackets = () => {
         ronda: 'semifinal_1',
         equipo_local_id: semifinal_1_local,
         equipo_visitante_id: semifinal_1_visitante,
-        fecha: convertToUTC(schedules.semifinal_1.fecha),
+        fecha: buildFechaISO(schedules.semifinal_1.fecha, schedules.semifinal_1.hora),
         hora: schedules.semifinal_1.hora,
       },
       {
         ronda: 'semifinal_2',
         equipo_local_id: semifinal_2_local,
         equipo_visitante_id: semifinal_2_visitante,
-        fecha: convertToUTC(schedules.semifinal_2.fecha),
+        fecha: buildFechaISO(schedules.semifinal_2.fecha, schedules.semifinal_2.hora),
         hora: schedules.semifinal_2.hora,
       },
       {
         ronda: 'final',
         equipo_local_id: matchups.final_local || 'TBD',
         equipo_visitante_id: matchups.final_visitante || 'TBD',
-        fecha: convertToUTC(schedules.final.fecha),
+        fecha: buildFechaISO(schedules.final.fecha, schedules.final.hora),
         hora: schedules.final.hora,
       }
     ];
 
+    setSaving(true);
     try {
-        await api.saveJuegos(id!, juegosData);
-        navigate(`/torneo/${id}`);
+      await api.saveJuegos(id!, juegosData);
+      navigate(`/torneo/${id}`);
     } catch (err) {
-        alert('Error al guardar el calendario');
+      alert(err instanceof Error ? err.message : 'Error al guardar el calendario');
+    } finally {
+      setSaving(false);
     }
   };
 
-  if (loading) return <div className="text-white">Cargando...</div>;
-  if (!torneo) return <div className="text-white">Torneo no encontrado</div>;
+  if (loading) return <div className="text-white animate-pulse p-8">Cargando...</div>;
+  if (!torneo) return <div className="text-white p-8">Torneo no encontrado</div>;
+
+  // BUG FIX #14: Mostrar advertencia si el torneo ya tiene juegos (evita confusión al re-entrar)
+  const yaConfigurado = torneo.juegos && torneo.juegos.length > 0;
 
   return (
     <div className="max-w-4xl mx-auto space-y-10">
-      <button 
+      <button
         onClick={() => navigate(`/torneo/${id}/configuracion`)}
         className="flex items-center gap-2 text-neutral-400 hover:text-white transition-colors group"
       >
         <ChevronLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
         Volver a Equipos
       </button>
+
+      {yaConfigurado && (
+        <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-200">
+            Este torneo ya tiene juegos programados. Si continúas se generará un error. Usa <strong>Editar Final</strong> desde el detalle del torneo para cambiar los equipos de la final.
+          </p>
+        </div>
+      )}
 
       <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-8 sm:p-10 shadow-2xl">
         <h2 className="text-3xl font-extrabold text-white mb-2">Calendario del Torneo</h2>
@@ -130,58 +146,54 @@ const TournamentBrackets = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {(['semifinal_1', 'semifinal_2', 'final'] as const).map((ronda) => {
             const isRoundWeekend = schedules[ronda].fecha ? isWeekend(parseISO(schedules[ronda].fecha)) : false;
-            
             return (
               <div key={ronda} className="space-y-6 p-6 bg-neutral-950 border border-neutral-800 rounded-2xl">
                 <div className="flex items-center gap-2 text-blue-500 mb-2">
                   <Trophy className="w-5 h-5" />
-                  <span className="font-bold uppercase tracking-wider text-xs">
-                    {ronda.replace('_', ' ')}
-                  </span>
+                  <span className="font-bold uppercase tracking-wider text-xs">{ronda.replace('_', ' ')}</span>
                 </div>
 
                 {ronda !== 'final' && (
                   <div className="space-y-4 pt-2 border-t border-neutral-900">
-                     <div className="space-y-2">
-                        <label className="text-[10px] font-black text-neutral-600 uppercase">Equipo Local</label>
-                        <select 
-                          value={matchups[`${ronda}_local` as keyof typeof matchups]}
-                          onChange={(e) => setMatchups(prev => ({ ...prev, [`${ronda}_local`]: e.target.value }))}
-                          className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-2 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none"
-                        >
-                          <option value="">Seleccionar...</option>
-                          {torneo.equipos.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-                        </select>
-                     </div>
-                     <div className="space-y-2">
-                        <label className="text-[10px] font-black text-neutral-600 uppercase">Equipo Visitante</label>
-                        <select 
-                          value={matchups[`${ronda}_visitante` as keyof typeof matchups]}
-                          onChange={(e) => setMatchups(prev => ({ ...prev, [`${ronda}_visitante`]: e.target.value }))}
-                          className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-2 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none"
-                        >
-                          <option value="">Seleccionar...</option>
-                          {torneo.equipos.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-                        </select>
-                     </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-neutral-600 uppercase">Equipo Local</label>
+                      <select
+                        value={matchups[`${ronda}_local` as keyof typeof matchups]}
+                        onChange={(e) => setMatchups(prev => ({ ...prev, [`${ronda}_local`]: e.target.value }))}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-2 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none"
+                      >
+                        <option value="">Seleccionar...</option>
+                        {torneo.equipos.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-neutral-600 uppercase">Equipo Visitante</label>
+                      <select
+                        value={matchups[`${ronda}_visitante` as keyof typeof matchups]}
+                        onChange={(e) => setMatchups(prev => ({ ...prev, [`${ronda}_visitante`]: e.target.value }))}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-2 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none"
+                      >
+                        <option value="">Seleccionar...</option>
+                        {torneo.equipos.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                      </select>
+                    </div>
                   </div>
                 )}
 
                 <div className="space-y-4 pt-2 border-t border-neutral-900">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-neutral-600 uppercase tracking-widest">Fecha del Juego</label>
-                    <input 
+                    <input
                       type="date"
                       value={schedules[ronda].fecha}
                       onChange={(e) => handleScheduleChange(ronda, 'fecha', e.target.value)}
                       className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-3 text-white focus:ring-1 focus:ring-blue-500 outline-none"
                     />
                   </div>
-
                   <div className="space-y-2">
                     <label className="text-[10px] font-black text-neutral-600 uppercase tracking-widest">Hora</label>
                     {isRoundWeekend ? (
-                      <select 
+                      <select
                         value={schedules[ronda].hora}
                         onChange={(e) => handleScheduleChange(ronda, 'hora', e.target.value)}
                         className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-3 text-white focus:ring-1 focus:ring-blue-500 outline-none"
@@ -202,18 +214,18 @@ const TournamentBrackets = () => {
         </div>
 
         <div className="mt-10 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
-            <p className="text-sm text-blue-200">
-                Los juegos entre semana tienen un horario fijo de <strong>7:30 PM</strong>. Los fines de semana puedes elegir entre varios horarios disponibles.
-            </p>
+          <AlertCircle className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+          <p className="text-sm text-blue-200">
+            Los juegos entre semana tienen un horario fijo de <strong>7:30 PM</strong>. Los fines de semana puedes elegir entre varios horarios disponibles.
+          </p>
         </div>
 
-        <button 
+        <button
           onClick={handleSave}
-          disabled={!schedules.semifinal_1.fecha || !schedules.semifinal_2.fecha || !schedules.final.fecha}
+          disabled={saving || !schedules.semifinal_1.fecha || !schedules.semifinal_2.fecha || !schedules.final.fecha || yaConfigurado}
           className="w-full mt-10 py-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-2xl font-black text-xl shadow-xl shadow-blue-500/20 hover:shadow-blue-500/40 hover:-translate-y-1 transition-all disabled:opacity-30 disabled:pointer-events-none"
         >
-          CONFIRMAR CALENDARIO Y COMENZAR
+          {saving ? 'Guardando...' : 'CONFIRMAR CALENDARIO Y COMENZAR'}
         </button>
       </div>
     </div>

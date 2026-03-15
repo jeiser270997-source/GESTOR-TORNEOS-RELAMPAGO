@@ -9,43 +9,63 @@ const app = express();
 const prisma = new PrismaClient();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
-app.use(express.json());
+// BUG FIX #1: CORS restringido al origen del frontend
+const allowedOrigins = process.env.FRONTEND_URL
+  ? [process.env.FRONTEND_URL]
+  : ['http://localhost:5173', 'http://localhost:4173'];
 
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('CORS no permitido'), false);
+  }
+}));
+
+app.use(express.json({ limit: '2mb' }));
+
+// Utilidad: parsear JSON de forma segura
+const safeParseJSON = (str: string, fallback: unknown = []) => {
+  try { return JSON.parse(str); }
+  catch { return fallback; }
+};
+
+// Health check
+app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+// ════════════════════════════════════════════════════════════════
 // TORNEOS
-app.get('/api/torneos', async (req, res) => {
+// ════════════════════════════════════════════════════════════════
+
+app.get('/api/torneos', async (_req, res) => {
   try {
-    const torneos = await prisma.torneo.findMany({ 
-      include: { equipos: true, juegos: true },
+    const torneos = await prisma.torneo.findMany({
+      include: { equipos: { include: { roster: true } }, juegos: true },
       orderBy: { numero_interno: 'desc' }
     });
-    const formatted = torneos.map(t => ({
-      ...t,
-      horarios_ocupados: JSON.parse(t.horarios_ocupados)
-    }));
-    res.json(formatted);
+    res.json(torneos.map(t => ({ ...t, horarios_ocupados: safeParseJSON(t.horarios_ocupados) })));
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch tournaments' });
+    console.error(err);
+    res.status(500).json({ error: 'Error al obtener torneos' });
   }
 });
 
 app.post('/api/torneos', async (req, res) => {
   try {
     const { fecha_inicio } = req.body;
-    let max = await prisma.torneo.aggregate({ _max: { numero_interno: true } });
-    const numero_interno = max._max.numero_interno ? (max._max.numero_interno + 1) : 1;
-    
+    // BUG FIX #2: Validar fecha antes de insertar
+    if (!fecha_inicio || isNaN(Date.parse(fecha_inicio))) {
+      return res.status(400).json({ error: 'Fecha de inicio inválida' });
+    }
+    const max = await prisma.torneo.aggregate({ _max: { numero_interno: true } });
+    const numero_interno = (max._max.numero_interno ?? 0) + 1;
     const torneo = await prisma.torneo.create({
-      data: {
-        numero_interno,
-        fecha_inicio: new Date(fecha_inicio),
-        estado: 'creado',
-        horarios_ocupados: '[]'
-      }
+      data: { numero_interno, fecha_inicio: new Date(fecha_inicio), estado: 'creado', horarios_ocupados: '[]' }
     });
     res.json({ ...torneo, horarios_ocupados: [] });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to create tournament' });
+    console.error(err);
+    res.status(500).json({ error: 'Error al crear torneo' });
   }
 });
 
@@ -55,175 +75,227 @@ app.get('/api/torneos/:id', async (req, res) => {
       where: { id: req.params.id },
       include: { equipos: { include: { roster: true } }, juegos: true }
     });
-    if (!torneo) return res.status(404).json({ error: 'Not found' });
-    res.json({
-      ...torneo,
-      horarios_ocupados: JSON.parse(torneo.horarios_ocupados)
-    });
+    if (!torneo) return res.status(404).json({ error: 'Torneo no encontrado' });
+    res.json({ ...torneo, horarios_ocupados: safeParseJSON(torneo.horarios_ocupados) });
   } catch (err) {
-    res.status(500).json({ error: 'Failed' });
+    console.error(err);
+    res.status(500).json({ error: 'Error al obtener torneo' });
   }
 });
 
 app.delete('/api/torneos/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    // Delete cascading manually since we're on SQLite and might not have enabled cascading deletes
-    await prisma.juego.deleteMany({ where: { torneo_id: id } });
-    const equipos = await prisma.equipo.findMany({ where: { torneo_id: id } });
-    for (const equipo of equipos) {
-        await prisma.jugador.deleteMany({ where: { equipo_id: equipo.id } });
-    }
-    await prisma.equipo.deleteMany({ where: { torneo_id: id } });
-    await prisma.torneo.delete({ where: { id } });
-    
+    // BUG FIX #3: Transacción para borrado en cascada — evita datos huérfanos
+    await prisma.$transaction(async (tx) => {
+      await tx.juego.deleteMany({ where: { torneo_id: id } });
+      const equipos = await tx.equipo.findMany({ where: { torneo_id: id } });
+      const equipoIds = equipos.map(e => e.id);
+      if (equipoIds.length > 0) {
+        await tx.jugador.deleteMany({ where: { equipo_id: { in: equipoIds } } });
+      }
+      await tx.equipo.deleteMany({ where: { torneo_id: id } });
+      await tx.torneo.delete({ where: { id } });
+    });
     res.json({ success: true });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed to delete tournament' });
+    res.status(500).json({ error: 'Error al eliminar torneo' });
   }
 });
 
+// ════════════════════════════════════════════════════════════════
 // EQUIPOS
+// ════════════════════════════════════════════════════════════════
+
 app.post('/api/torneos/:id/equipos', async (req, res) => {
   try {
     const { nombre, numero_delegado, roster } = req.body;
+    // BUG FIX #4: Validar límite de 4 equipos en el servidor
+    const count = await prisma.equipo.count({ where: { torneo_id: req.params.id } });
+    if (count >= 4) return res.status(400).json({ error: 'El torneo ya tiene 4 equipos' });
+    // BUG FIX #5: Validar nombre
+    if (!nombre?.trim()) return res.status(400).json({ error: 'El nombre del equipo es requerido' });
+
     const equipo = await prisma.equipo.create({
       data: {
-        nombre,
-        numero_delegado,
+        nombre: nombre.trim(),
+        numero_delegado: numero_delegado ?? '',
         torneo_id: req.params.id,
         roster: {
-          create: roster.map((p: any) => ({
+          create: (roster ?? []).map((p: { nombre: string; numero_camiseta?: string | null }) => ({
             nombre: p.nombre,
-            numero_camiseta: p.numero_camiseta ? p.numero_camiseta.toString() : null
+            numero_camiseta: p.numero_camiseta ? String(p.numero_camiseta) : null
           }))
         }
       },
       include: { roster: true }
     });
+
+    if (numero_delegado) {
+      await upsertContacto(nombre.trim(), numero_delegado, req.params.id);
+    }
     res.json(equipo);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed' });
+    res.status(500).json({ error: 'Error al agregar equipo' });
   }
 });
 
 app.delete('/api/equipos/:id', async (req, res) => {
-    try {
-        await prisma.jugador.deleteMany({ where: { equipo_id: req.params.id } });
-        await prisma.equipo.delete({ where: { id: req.params.id } });
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: 'Failed' });
-    }
+  try {
+    // BUG FIX #6: Transacción para borrar jugadores + equipo
+    await prisma.$transaction(async (tx) => {
+      await tx.jugador.deleteMany({ where: { equipo_id: req.params.id } });
+      await tx.equipo.delete({ where: { id: req.params.id } });
+    });
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al eliminar equipo' });
+  }
 });
 
 app.put('/api/equipos/:id', async (req, res) => {
-    try {
-        const { nombre, numero_delegado, roster } = req.body;
-        
-        // Update basic info
-        await prisma.equipo.update({
-            where: { id: req.params.id },
-            data: { nombre, numero_delegado }
-        });
-
-        // Update roster: easiest is delete and recreate if provided
-        if (roster) {
-            await prisma.jugador.deleteMany({ where: { equipo_id: req.params.id } });
-            await prisma.jugador.createMany({
-                data: roster.map((p: any) => ({
-                    nombre: p.nombre,
-                    numero_camiseta: p.numero_camiseta ? p.numero_camiseta.toString() : null,
-                    equipo_id: req.params.id
-                }))
-            });
+  try {
+    const { nombre, numero_delegado, roster } = req.body;
+    await prisma.$transaction(async (tx) => {
+      await tx.equipo.update({
+        where: { id: req.params.id },
+        data: {
+          ...(nombre?.trim() && { nombre: nombre.trim() }),
+          ...(numero_delegado !== undefined && { numero_delegado })
         }
-
-        const updated = await prisma.equipo.findUnique({ 
-            where: { id: req.params.id },
-            include: { roster: true }
-        });
-        res.json(updated);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Failed to update team' });
-    }
+      });
+      if (roster !== undefined) {
+        await tx.jugador.deleteMany({ where: { equipo_id: req.params.id } });
+        if (roster.length > 0) {
+          await tx.jugador.createMany({
+            data: roster.map((p: { nombre: string; numero_camiseta?: string | null }) => ({
+              nombre: p.nombre,
+              numero_camiseta: p.numero_camiseta ? String(p.numero_camiseta) : null,
+              equipo_id: req.params.id
+            }))
+          });
+        }
+      }
+    });
+    const updated = await prisma.equipo.findUnique({ where: { id: req.params.id }, include: { roster: true } });
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al actualizar equipo' });
+  }
 });
 
-// CONTACTOS
-app.get('/api/contactos', async (req, res) => {
-    try {
-        const contactos = await prisma.contacto.findMany();
-        const formatted = contactos.map(c => ({
-            ...c,
-            torneos_participados: JSON.parse(c.torneos_participados)
-        }));
-        res.json(formatted);
-    } catch (err) {
-        res.status(500).json({ error: 'Failed' });
-    }
-});
-
+// ════════════════════════════════════════════════════════════════
 // JUEGOS
+// ════════════════════════════════════════════════════════════════
+
 app.post('/api/torneos/:id/juegos', async (req, res) => {
   try {
-    const { juegos } = req.body; // Array of juego data
-    
-    // Validate conflicts (simplified for now, should check across torneos)
-    // In a real app we'd query all 'programado' games' times
-    
-    const createdJuegos = await Promise.all(juegos.map((j: any) => 
-      prisma.juego.create({
-        data: {
-          ronda: j.ronda,
-          equipo_local_id: j.equipo_local_id,
-          equipo_visitante_id: j.equipo_visitante_id,
-          fecha: new Date(j.fecha),
-          hora: j.hora,
-          torneo_id: req.params.id
-        }
-      })
-    ));
+    const { juegos } = req.body;
+    // BUG FIX #7: Evitar juegos duplicados
+    const existingCount = await prisma.juego.count({ where: { torneo_id: req.params.id } });
+    if (existingCount > 0) {
+      return res.status(400).json({ error: 'Este torneo ya tiene juegos. Usa PUT /api/juegos/:id para actualizar.' });
+    }
+    // BUG FIX #8: Validar fechas
+    for (const j of juegos) {
+      if (!j.fecha || isNaN(Date.parse(j.fecha))) {
+        return res.status(400).json({ error: `Fecha inválida para ${j.ronda}` });
+      }
+    }
 
-    // Update occupied hours for this tournament
-    const hours = juegos.map((j: any) => `${j.fecha}T${j.hora}`);
+    const createdJuegos = await prisma.$transaction(
+      juegos.map((j: { ronda: string; equipo_local_id: string; equipo_visitante_id: string; fecha: string; hora: string }) =>
+        prisma.juego.create({
+          data: { ronda: j.ronda, equipo_local_id: j.equipo_local_id, equipo_visitante_id: j.equipo_visitante_id, fecha: new Date(j.fecha), hora: j.hora, torneo_id: req.params.id }
+        })
+      )
+    );
+
+    // BUG FIX #9: Acumular horarios en vez de reemplazar
+    const torneoActual = await prisma.torneo.findUnique({ where: { id: req.params.id } });
+    const horasExistentes: string[] = safeParseJSON(torneoActual?.horarios_ocupados ?? '[]');
+    const nuevasHoras = juegos.map((j: { fecha: string; hora: string }) => `${j.fecha.split('T')[0]}T${j.hora}`);
+    const todasLasHoras = [...new Set([...horasExistentes, ...nuevasHoras])];
+
     await prisma.torneo.update({
-        where: { id: req.params.id },
-        data: { 
-            horarios_ocupados: JSON.stringify(hours),
-            estado: 'en_progreso'
-        }
+      where: { id: req.params.id },
+      data: { horarios_ocupados: JSON.stringify(todasLasHoras), estado: 'en_progreso' }
     });
-
     res.json(createdJuegos);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Failed' });
+    res.status(500).json({ error: 'Error al guardar juegos' });
   }
 });
 
 app.put('/api/juegos/:id', async (req, res) => {
-    try {
-        const { equipo_local_id, equipo_visitante_id, fecha, hora, estado } = req.body;
-        const updated = await prisma.juego.update({
-            where: { id: req.params.id },
-            data: {
-                equipo_local_id,
-                equipo_visitante_id,
-                fecha: fecha ? new Date(fecha) : undefined,
-                hora,
-                estado
-            }
-        });
-        res.json(updated);
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Failed to update game' });
-    }
+  try {
+    const { equipo_local_id, equipo_visitante_id, fecha, hora, estado } = req.body;
+    // BUG FIX #10: Verificar existencia antes de actualizar
+    const existing = await prisma.juego.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'Juego no encontrado' });
+
+    const updated = await prisma.juego.update({
+      where: { id: req.params.id },
+      data: {
+        ...(equipo_local_id !== undefined && { equipo_local_id }),
+        ...(equipo_visitante_id !== undefined && { equipo_visitante_id }),
+        ...(fecha && { fecha: new Date(fecha) }),
+        ...(hora !== undefined && { hora }),
+        ...(estado !== undefined && { estado })
+      }
+    });
+    res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al actualizar juego' });
+  }
 });
 
+// ════════════════════════════════════════════════════════════════
+// CONTACTOS
+// ════════════════════════════════════════════════════════════════
+
+app.get('/api/contactos', async (_req, res) => {
+  try {
+    const contactos = await prisma.contacto.findMany({ orderBy: { total_participaciones: 'desc' } });
+    res.json(contactos.map(c => ({ ...c, torneos_participados: safeParseJSON(c.torneos_participados) })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Error al obtener contactos' });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════════════════════
+
+async function upsertContacto(nombreEquipo: string, numeroDelegado: string, torneoId: string) {
+  try {
+    const existing = await prisma.contacto.findUnique({ where: { nombre_equipo: nombreEquipo } });
+    if (existing) {
+      const torneos: string[] = safeParseJSON(existing.torneos_participados);
+      if (!torneos.includes(torneoId)) {
+        torneos.push(torneoId);
+        await prisma.contacto.update({
+          where: { nombre_equipo: nombreEquipo },
+          data: { numero_delegado: numeroDelegado, torneos_participados: JSON.stringify(torneos), total_participaciones: torneos.length }
+        });
+      }
+    } else {
+      await prisma.contacto.create({
+        data: { nombre_equipo: nombreEquipo, numero_delegado: numeroDelegado, torneos_participados: JSON.stringify([torneoId]), total_participaciones: 1 }
+      });
+    }
+  } catch (err) {
+    console.error('Error upsertContacto:', err);
+  }
+}
+
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`✅ Backend corriendo en http://localhost:${PORT}`);
 });
