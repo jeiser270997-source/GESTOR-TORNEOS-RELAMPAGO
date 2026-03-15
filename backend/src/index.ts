@@ -283,6 +283,20 @@ async function upsertContacto(nombreEquipo: string, numeroDelegado: string, torn
   }
 }
 
+// ════════════════════════════════════════════════════════════════
+// PING — mantener Supabase activo cada 3 días
+// ════════════════════════════════════════════════════════════════
+
+const TRES_DIAS = 1000 * 60 * 60 * 24 * 3;
+setInterval(async () => {
+  try {
+    await prisma.torneo.count();
+    console.log('✅ Ping a Supabase OK');
+  } catch (err) {
+    console.error('❌ Ping falló:', err);
+  }
+}, TRES_DIAS);
+
 app.listen(PORT, () => {
   console.log(`✅ Backend corriendo en http://localhost:${PORT}`);
 });
