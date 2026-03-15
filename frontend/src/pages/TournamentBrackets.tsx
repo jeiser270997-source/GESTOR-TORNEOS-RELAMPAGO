@@ -79,7 +79,7 @@ const TournamentBrackets = () => {
       return;
     }
 
-    const juegosData = [
+    const juegosData: Array<{ ronda: 'semifinal_1' | 'semifinal_2' | 'final'; equipo_local_id: string; equipo_visitante_id: string; fecha: string; hora: string }> = [
       {
         ronda: 'semifinal_1',
         equipo_local_id: semifinal_1_local,

@@ -5,7 +5,6 @@ import type { Torneo, Equipo, Juego } from '../types';
 import { Trophy, Download, Share2, ChevronLeft, Edit2, FileText, Send, Users, Settings } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import html2pdf from 'html2pdf.js';
 import EditTeamModal from '../components/EditTeamModal';
 import EditFinalModal from '../components/EditFinalModal';
 

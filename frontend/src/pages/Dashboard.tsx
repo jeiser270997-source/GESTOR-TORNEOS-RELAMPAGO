@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
 import type { Torneo } from '../types';
-import { Calendar, Trophy, Users, ChevronRight, PlusCircle, Trash2, Send, Zap } from 'lucide-react';
+import { Calendar, Users, ChevronRight, PlusCircle, Trash2, Send, Zap } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link, useNavigate } from 'react-router-dom';
 import InvitarModal from '../components/InvitarModal';
