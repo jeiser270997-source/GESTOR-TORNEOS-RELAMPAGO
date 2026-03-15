@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { supabase } from '../supabase';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -43,11 +44,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </div>
             </Link>
 
-            <div
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold"
-              style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.18)', color: '#fbbf24' }}
-            >
-              🥎 Temporada 2026
+            <div className="flex items-center gap-3">
+              <div
+                className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold"
+                style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.18)', color: '#fbbf24' }}
+              >
+                🥎 Temporada 2026
+              </div>
+
+              <button
+                onClick={() => supabase.auth.signOut()}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-opacity hover:opacity-80"
+                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#aaa' }}
+              >
+                🔒 Salir
+              </button>
             </div>
           </div>
         </div>

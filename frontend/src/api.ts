@@ -1,9 +1,10 @@
 import axios, { AxiosError } from 'axios';
+import { supabase } from './supabase';
 import type { Torneo, Equipo, Contacto, Juego } from './types';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api';
 
-// BUG FIX #11: Interceptor global para errores — evita que la app crashee silenciosamente
+// Manejo global de errores
 axios.interceptors.response.use(
   res => res,
   (error: AxiosError<{ error?: string }>) => {
@@ -12,6 +13,15 @@ axios.interceptors.response.use(
     return Promise.reject(new Error(msg));
   }
 );
+
+// Adjuntar token de Supabase a cada petición
+axios.interceptors.request.use(async (config) => {
+  const { data } = await supabase.auth.getSession();
+  if (data.session?.access_token) {
+    config.headers.Authorization = `Bearer ${data.session.access_token}`;
+  }
+  return config;
+});
 
 export const api = {
   // Torneos
