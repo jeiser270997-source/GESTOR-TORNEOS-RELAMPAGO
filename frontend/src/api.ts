@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { Torneo, Equipo, Contacto, Juego } from './types';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api';
 
 export const api = {
   // Torneos

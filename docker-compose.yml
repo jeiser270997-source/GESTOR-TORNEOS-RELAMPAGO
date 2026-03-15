@@ -1,0 +1,37 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: gestor-torneos-backend
+    working_dir: /app
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: file:./prisma/dev.db
+      PORT: 3001
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+      - backend_db:/app/prisma
+    command: sh -c "npm install && npx prisma generate && npx prisma db push && npm run dev"
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: gestor-torneos-frontend
+    working_dir: /app
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:3001/api
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    command: sh -c "npm install --legacy-peer-deps && npm run dev -- --host 0.0.0.0 --port 5173"
+
+volumes:
+  backend_node_modules:
+  frontend_node_modules:
+  backend_db:
