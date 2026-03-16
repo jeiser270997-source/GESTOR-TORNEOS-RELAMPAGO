@@ -236,6 +236,19 @@ app.put('/api/juegos/:id', async (req, res) => {
         ...(estado !== undefined && { estado })
       }
     });
+
+    // Si cambiaron fecha/hora, reconstruir horarios_ocupados desde todos los juegos del torneo
+    if ((fecha || hora !== undefined) && existing.torneo_id) {
+      const todosJuegos = await prisma.juego.findMany({ where: { torneo_id: existing.torneo_id } });
+      const nuevosHorarios = [...new Set(
+        todosJuegos.map(j => `${j.fecha.toISOString().split('T')[0]}T${j.hora}`)
+      )];
+      await prisma.torneo.update({
+        where: { id: existing.torneo_id },
+        data: { horarios_ocupados: toJson(nuevosHorarios) }
+      });
+    }
+
     res.json(updated);
   } catch (err) {
     console.error(err);

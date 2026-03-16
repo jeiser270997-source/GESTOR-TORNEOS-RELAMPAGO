@@ -45,6 +45,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             </Link>
 
             <div className="flex items-center gap-3">
+              <Link
+                to="/amistoso"
+                className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all hover:opacity-90"
+                style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)', color: '#fbbf24' }}
+              >
+                📣 Amistosos
+              </Link>
+
               <div
                 className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold"
                 style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.18)', color: '#fbbf24' }}

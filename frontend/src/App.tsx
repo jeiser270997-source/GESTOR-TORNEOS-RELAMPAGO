@@ -9,6 +9,7 @@ import CreateTournament from './pages/CreateTournament';
 import TournamentConfig from './pages/TournamentConfig';
 import TournamentBrackets from './pages/TournamentBrackets';
 import TournamentDetail from './pages/TournamentDetail';
+import AmistaPage from './pages/AmistaPage';
 
 function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
@@ -30,6 +31,7 @@ function App() {
         <Route path="/torneo/:id/configuracion" element={<TournamentConfig />} />
         <Route path="/torneo/:id/calendario"    element={<TournamentBrackets />} />
         <Route path="/torneo/:id"               element={<TournamentDetail />} />
+        <Route path="/amistoso"                  element={<AmistaPage />} />
       </Routes>
     </Layout>
   );

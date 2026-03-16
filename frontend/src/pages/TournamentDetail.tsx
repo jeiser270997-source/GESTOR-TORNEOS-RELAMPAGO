@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import type { Torneo, Equipo, Juego } from '../types';
-import { Trophy, Download, Share2, ChevronLeft, Edit2, FileText, Send, Users, Settings } from 'lucide-react';
+import { Trophy, Download, Share2, ChevronLeft, Edit2, FileText, Send, Users, Settings, CalendarClock } from 'lucide-react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import EditTeamModal from '../components/EditTeamModal';
 import EditFinalModal from '../components/EditFinalModal';
+import RescheduleModal from '../components/RescheduleModal';
 
 const format12h = (hora24: string): string => {
   if (!hora24 || !hora24.includes(':')) return hora24;
@@ -16,51 +17,8 @@ const format12h = (hora24: string): string => {
   return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
 };
 
-// ── SVG fondo softball profesional ────────────────────────────────────────────
-const buildFlyerSVGBackground = (isFinal: boolean) => {
-  const baseColor   = isFinal ? '#1a0a00' : '#0a1a0f';
-  const accentColor = isFinal ? '#f59e0b' : '#fbbf24';
-  const glowColor   = isFinal ? 'rgba(245,158,11,0.18)' : 'rgba(251,191,36,0.14)';
+// ── FLAYER MLB-style — render HTML → canvas ───────────────────────────────────
 
-  return `
-    <rect width="1080" height="1350" fill="${baseColor}"/>
-    <radialGradient id="bg" cx="50%" cy="45%" r="65%">
-      <stop offset="0%" stop-color="${glowColor}"/>
-      <stop offset="100%" stop-color="transparent"/>
-    </radialGradient>
-    <rect width="1080" height="1350" fill="url(#bg)"/>
-    <g opacity="0.06" transform="translate(540,700)">
-      <polygon points="0,-280 280,0 0,280 -280,0" fill="none" stroke="${accentColor}" stroke-width="3"/>
-      <polygon points="0,-200 200,0 0,200 -200,0" fill="none" stroke="${accentColor}" stroke-width="2"/>
-      <line x1="0" y1="-280" x2="0" y2="280" stroke="${accentColor}" stroke-width="1.5" stroke-dasharray="8 6"/>
-      <line x1="-280" y1="0" x2="280" y2="0" stroke="${accentColor}" stroke-width="1.5" stroke-dasharray="8 6"/>
-      <rect x="-18" y="-298" width="36" height="36" rx="4" fill="${accentColor}" transform="rotate(45 0 -280)"/>
-      <rect x="-18" y="262" width="36" height="36" rx="4" fill="${accentColor}" transform="rotate(45 0 280)"/>
-      <rect x="-298" y="-18" width="36" height="36" rx="4" fill="${accentColor}" transform="rotate(45 -280 0)"/>
-      <rect x="262" y="-18" width="36" height="36" rx="4" fill="${accentColor}" transform="rotate(45 280 0)"/>
-      <circle cx="0" cy="0" r="22" fill="${accentColor}" opacity="0.5"/>
-    </g>
-    <g opacity="0.07" transform="translate(940, 120)">
-      <circle cx="0" cy="0" r="110" fill="#f5f0cc" stroke="#d4c490" stroke-width="2"/>
-      <radialGradient id="ballR" cx="30%" cy="25%" r="70%">
-        <stop offset="0%" stop-color="#fffef2"/>
-        <stop offset="100%" stop-color="#e0d498"/>
-      </radialGradient>
-      <circle cx="0" cy="0" r="110" fill="url(#ballR)"/>
-      <path d="M-50,-80 C-38,-60,-38,-40,-50,-20 C-62,0,-62,20,-50,40 C-38,60,-38,80,-50,100" stroke="#dc2626" stroke-width="5" stroke-linecap="round" fill="none"/>
-      <path d="M50,-80 C38,-60,38,-40,50,-20 C62,0,62,20,50,40 C38,60,38,80,50,100" stroke="#dc2626" stroke-width="5" stroke-linecap="round" fill="none"/>
-    </g>
-    <g opacity="0.05" transform="translate(120, 1220)">
-      <circle cx="0" cy="0" r="80" fill="#f5f0cc" stroke="#d4c490" stroke-width="2"/>
-      <path d="M-36,-58 C-28,-44,-28,-30,-36,-16 C-44,0,-44,14,-36,30" stroke="#dc2626" stroke-width="4" stroke-linecap="round" fill="none"/>
-      <path d="M36,-58 C28,-44,28,-30,36,-16 C44,0,44,14,36,30" stroke="#dc2626" stroke-width="4" stroke-linecap="round" fill="none"/>
-    </g>
-    <line x1="0" y1="420" x2="1080" y2="420" stroke="${accentColor}" stroke-width="1" opacity="0.08"/>
-    <line x1="0" y1="900" x2="1080" y2="900" stroke="${accentColor}" stroke-width="1" opacity="0.08"/>
-    <rect x="24" y="24" width="1032" height="1302" rx="28" fill="none" stroke="${accentColor}" stroke-width="4" opacity="0.7"/>
-    <rect x="34" y="34" width="1012" height="1282" rx="22" fill="none" stroke="${accentColor}" stroke-width="1" opacity="0.3"/>
-  `;
-};
 
 const TournamentDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -71,6 +29,7 @@ const TournamentDetail = () => {
   const [editingTeam, setEditingTeam] = useState<Equipo | null>(null);
   const [isFinalModalOpen, setIsFinalModalOpen] = useState(false);
   const [promoTab, setPromoTab] = useState<{ juego: Juego } | null>(null);
+  const [reschedulingJuego, setReschedulingJuego] = useState<Juego | null>(null);
 
   const fetchTorneo = async () => {
     if (!id) return;
@@ -278,155 +237,238 @@ const TournamentDetail = () => {
     alert('¡Mensaje copiado al portapapeles!');
   };
 
-  // ─── DESCARGAR FLAYER PNG — SVG profesional ───────────────────────────────
+  // ─── DESCARGAR FLAYER PNG — Canvas API + fondos reales ──────────────────────
   const downloadFlayerImage = async (juego: Juego) => {
     if (juego.equipo_local_id === 'TBD' || juego.equipo_visitante_id === 'TBD') return;
 
-    const local       = getTeamName(juego.equipo_local_id);
-    const visitante   = getTeamName(juego.equipo_visitante_id);
-    const fecha       = format(new Date(juego.fecha), 'eeee dd MMMM', { locale: es }).toUpperCase();
-    const horaFmt     = format12h(juego.hora);
-    const isFinal     = juego.ronda === 'final';
-    const accentColor = '#fbbf24';
+    const local     = getTeamName(juego.equipo_local_id);
+    const visitante = getTeamName(juego.equipo_visitante_id);
+    const fechaStr  = format(new Date(juego.fecha), 'eeee dd MMMM', { locale: es }).toUpperCase();
+    const horaFmt   = format12h(juego.hora);
+    const isFinal   = juego.ronda === 'final';
 
-    const rondaLabel = isFinal
-      ? '🏆 GRAN FINAL 🏆'
-      : juego.ronda === 'semifinal_1' ? '⚾ SEMIFINAL 1' : '⚾ SEMIFINAL 2';
+    const rondaLabel = juego.ronda === 'semifinal_1' ? 'SEMIFINAL 1'
+                     : juego.ronda === 'semifinal_2' ? 'SEMIFINAL 2'
+                     : 'GRAN FINAL';
 
-    const tagline = isFinal
-      ? '⚡ ¡LA HORA DE LA GLORIA! ⚡'
-      : '⚡ ¡QUE COMIENCE LA ACCIÓN! ⚡';
+    // ── Cargar fondo ────────────────────────────────────────────────
+    // Final: siempre home plate. Semifinales: aleatorio entre 4 fondos
+    const SEMI_FONDOS = [
+      new URL('../assets/fondos/semi_1.png', import.meta.url).href,
+      new URL('../assets/fondos/semi_2.png', import.meta.url).href,
+      new URL('../assets/fondos/semi_3.png', import.meta.url).href,
+      new URL('../assets/fondos/semi_4.png', import.meta.url).href,
+    ];
+    const FINAL_FONDO = new URL('../assets/fondos/final.png', import.meta.url).href;
+    const bgUrl = isFinal
+      ? FINAL_FONDO
+      : SEMI_FONDOS[Math.floor(Math.random() * SEMI_FONDOS.length)];
 
-    const localUp    = local.toUpperCase();
-    const visitUp    = visitante.toUpperCase();
+    const bgImg = await new Promise<HTMLImageElement>((res, rej) => {
+      const img = new Image();
+      img.onload = () => res(img);
+      img.onerror = rej;
+      img.src = bgUrl;
+    });
 
-    // Partir nombre si es muy largo
-    const splitName = (name: string, maxLen = 12) =>
-      name.length > maxLen
-        ? [name.substring(0, maxLen), name.substring(maxLen)]
-        : [name, null];
+    const W = 1080, H = 1350;
+    const canvas = document.createElement('canvas');
+    canvas.width  = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d')!;
 
-    const [localL1, localL2]   = splitName(localUp);
-    const [visitL1, visitL2]   = splitName(visitUp);
+    // ── Dibujar fondo recortado centrado ────────────────────────────
+    const scale  = Math.max(W / bgImg.width, H / bgImg.height);
+    const scaledW = bgImg.width  * scale;
+    const scaledH = bgImg.height * scale;
+    const offX   = (W - scaledW) / 2;
+    const offY   = (H - scaledH) / 2;
+    ctx.drawImage(bgImg, offX, offY, scaledW, scaledH);
 
-    const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">
-      <defs>
-        <radialGradient id="bg" cx="50%" cy="45%" r="65%">
-          <stop offset="0%" stop-color="${isFinal ? 'rgba(245,158,11,0.18)' : 'rgba(251,191,36,0.14)'}"/>
-          <stop offset="100%" stop-color="transparent"/>
-        </radialGradient>
-        <radialGradient id="ballR" cx="30%" cy="25%" r="70%">
-          <stop offset="0%" stop-color="#fffef2"/>
-          <stop offset="100%" stop-color="#e0d498"/>
-        </radialGradient>
-      </defs>
+    // ── Overlay quirúrgico adaptado a cada tipo de fondo ───────────
+    // Header (cielo oscuro — overlay mínimo)
+    const gradTop = ctx.createLinearGradient(0, 0, 0, 340);
+    gradTop.addColorStop(0,   'rgba(0,0,0,0.55)');
+    gradTop.addColorStop(1,   'rgba(0,0,0,0)');
+    ctx.fillStyle = gradTop; ctx.fillRect(0, 0, W, 340);
 
-      ${buildFlyerSVGBackground(isFinal)}
+    // Centro — velo muy suave para legibilidad nombres
+    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(0, 340, W, 440);
 
-      <!-- SOFTBALL EMOJI TOP -->
-      <text x="540" y="112" text-anchor="middle" font-size="70" font-family="Arial">🥎</text>
+    // Zona hora/fecha — oscurecer el campo para texto blanco
+    const gradMid = ctx.createLinearGradient(0, 780, 0, 1090);
+    gradMid.addColorStop(0,   'rgba(0,0,0,0)');
+    gradMid.addColorStop(0.4, 'rgba(0,0,0,0.52)');
+    gradMid.addColorStop(1,   'rgba(0,0,0,0.65)');
+    ctx.fillStyle = gradMid; ctx.fillRect(0, 780, W, 310);
 
-      <!-- TORNEOS RELÁMPAGO -->
-      <text x="540" y="182" text-anchor="middle"
-        font-family="Arial Black,Arial" font-weight="900" font-size="56"
-        fill="#ffffff" letter-spacing="3">TORNEOS RELÁMPAGO</text>
+    // Franja inferior
+    const gradBot = ctx.createLinearGradient(0, 1090, 0, H);
+    gradBot.addColorStop(0,   'rgba(0,0,0,0.65)');
+    gradBot.addColorStop(1,   'rgba(0,0,0,0.85)');
+    ctx.fillStyle = gradBot; ctx.fillRect(0, 1090, W, H - 1090);
 
-      <!-- ENVIGADO -->
-      <text x="540" y="252" text-anchor="middle"
-        font-family="Arial Black,Arial" font-weight="900" font-size="64"
-        fill="${accentColor}" letter-spacing="6">ENVIGADO</text>
+    const GOLD  = '#F5C518';
+    const WHITE = '#FFFFFF';
 
-      <!-- SOFTBALL subtitle -->
-      <text x="540" y="295" text-anchor="middle"
-        font-family="Arial" font-weight="700" font-size="20"
-        fill="rgba(255,255,255,0.4)" letter-spacing="8">S O F T B A L L</text>
-
-      <!-- Separador -->
-      <line x1="80" y1="322" x2="1000" y2="322" stroke="${accentColor}" stroke-width="2" opacity="0.4"/>
-
-      <!-- RONDA -->
-      <text x="540" y="410" text-anchor="middle"
-        font-family="Arial Black,Arial" font-weight="900" font-size="52"
-        fill="${accentColor}">${rondaLabel}</text>
-
-      <!-- Equipo LOCAL -->
-      <text x="200" y="510" text-anchor="middle" font-size="32" font-family="Arial">${isFinal ? '🏅' : '🔴'}</text>
-      <text x="200" y="572" text-anchor="middle"
-        font-family="Arial Black,Arial" font-weight="900" font-size="48" fill="#ffffff">${localL1}</text>
-      ${localL2 ? `<text x="200" y="626" text-anchor="middle" font-family="Arial Black,Arial" font-weight="900" font-size="48" fill="#ffffff">${localL2}</text>` : ''}
-
-      <!-- VS -->
-      <text x="540" y="598" text-anchor="middle"
-        font-family="Arial Black,Arial" font-weight="900" font-size="88"
-        fill="${accentColor}" font-style="italic">VS</text>
-
-      <!-- Equipo VISITANTE -->
-      <text x="880" y="510" text-anchor="middle" font-size="32" font-family="Arial">${isFinal ? '🏅' : '🔵'}</text>
-      <text x="880" y="572" text-anchor="middle"
-        font-family="Arial Black,Arial" font-weight="900" font-size="48" fill="#ffffff">${visitL1}</text>
-      ${visitL2 ? `<text x="880" y="626" text-anchor="middle" font-family="Arial Black,Arial" font-weight="900" font-size="48" fill="#ffffff">${visitL2}</text>` : ''}
-
-      <!-- Separador -->
-      <line x1="80" y1="720" x2="1000" y2="720" stroke="${accentColor}" stroke-width="2" opacity="0.3"/>
-
-      <!-- FECHA -->
-      <text x="540" y="800" text-anchor="middle"
-        font-family="Arial" font-weight="700" font-size="34"
-        fill="rgba(255,255,255,0.75)">📅 ${fecha}</text>
-
-      <!-- HORA -->
-      <text x="540" y="895" text-anchor="middle"
-        font-family="Arial Black,Arial" font-weight="900" font-size="76"
-        fill="#ffffff">🕐 ${horaFmt}</text>
-
-      <!-- FONDO BOTTOM -->
-      <rect x="0" y="1010" width="1080" height="340" fill="rgba(0,0,0,0.48)"/>
-      <line x1="0" y1="1010" x2="1080" y2="1010" stroke="${accentColor}" stroke-width="2" opacity="0.4"/>
-
-      <!-- SEDE -->
-      <text x="540" y="1088" text-anchor="middle"
-        font-family="Arial Black,Arial" font-weight="900" font-size="32"
-        fill="#ffffff">📍 POLIDEPORTIVO SUR ENVIGADO</text>
-
-      <!-- TAGLINE -->
-      <text x="540" y="1158" text-anchor="middle"
-        font-family="Arial" font-weight="700" font-size="28"
-        fill="${accentColor}">${tagline}</text>
-
-      <!-- HASHTAGS -->
-      <text x="540" y="1224" text-anchor="middle"
-        font-family="Arial" font-size="20"
-        fill="rgba(255,255,255,0.38)">#TorneosRelámpago #Softball #Envigado</text>
-
-      <!-- WEB -->
-      <text x="540" y="1308" text-anchor="middle"
-        font-family="Arial" font-size="17"
-        fill="rgba(251,191,36,0.32)">torneosrelampagoenvigado.com</text>
-    </svg>`;
-
-    const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
-    const url  = URL.createObjectURL(blob);
-    const img  = new Image();
-
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width  = 1080 * 2;
-      canvas.height = 1350 * 2;
-      const ctx = canvas.getContext('2d')!;
-      ctx.scale(2, 2);
-      ctx.drawImage(img, 0, 0, 1080, 1350);
-      URL.revokeObjectURL(url);
-      const link = document.createElement('a');
-      link.download = `Flayer_${juego.ronda}_${local}_vs_${visitante}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-      alert('¡Flayer PNG generado correctamente!');
+    // ── Helpers ────────────────────────────────────────────────────
+    const fitFont = (text: string, maxW: number, maxSz: number, minSz: number) => {
+      let sz = maxSz;
+      while (sz > minSz) {
+        ctx.font = `900 ${sz}px "Poppins", "Arial Black", Arial`;
+        if (ctx.measureText(text).width <= maxW) break;
+        sz -= 2;
+      }
+      return sz;
     };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      alert('Error al generar el flayer. Intenta de nuevo.');
+
+    const drawText = (text: string, x: number, y: number, color: string, sw = 3) => {
+      ctx.fillStyle   = color;
+      ctx.strokeStyle = `rgba(0,0,0,0.85)`;
+      ctx.lineWidth   = sw * 2;
+      ctx.lineJoin    = 'round';
+      ctx.strokeText(text, x, y);
+      ctx.fillText(text, x, y);
     };
-    img.src = url;
+
+    const centerText = (text: string, y: number, color: string, sw = 3) => {
+      const tw = ctx.measureText(text).width;
+      drawText(text, (W - tw) / 2, y, color, sw);
+    };
+
+    const fitCenter = (text: string, y: number, maxSz: number, minSz: number, color: string, sw = 5) => {
+      const sz = fitFont(text, W - 80, maxSz, minSz);
+      ctx.font = `900 ${sz}px "Poppins", "Arial Black", Arial`;
+      centerText(text, y, color, sw);
+    };
+
+    const hline = (y: number, alpha = 0.55, margin = 60) => {
+      const g = ctx.createLinearGradient(margin, y, W - margin, y);
+      g.addColorStop(0,   'transparent');
+      g.addColorStop(0.5, `rgba(245,197,24,${alpha})`);
+      g.addColorStop(1,   'transparent');
+      ctx.strokeStyle = g;
+      ctx.lineWidth   = 1.5;
+      ctx.beginPath(); ctx.moveTo(margin, y); ctx.lineTo(W - margin, y); ctx.stroke();
+    };
+
+    // ── Bordes dorados ─────────────────────────────────────────────
+    const rr = (x: number, y: number, w: number, h: number, r: number) => {
+      ctx.beginPath();
+      ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y); ctx.arcTo(x+w,y,x+w,y+r,r);
+      ctx.lineTo(x+w,y+h-r); ctx.arcTo(x+w,y+h,x+w-r,y+h,r);
+      ctx.lineTo(x+r,y+h); ctx.arcTo(x,y+h,x,y+h-r,r);
+      ctx.lineTo(x,y+r); ctx.arcTo(x,y,x+r,y,r);
+      ctx.closePath();
+    };
+    ctx.strokeStyle = 'rgba(245,197,24,0.85)'; ctx.lineWidth = 3;
+    rr(14,14,W-28,H-28,20); ctx.stroke();
+    ctx.strokeStyle = 'rgba(245,197,24,0.22)'; ctx.lineWidth = 1;
+    rr(22,22,W-44,H-44,14); ctx.stroke();
+
+    // ── Pelota softball dibujada ───────────────────────────────────
+    const bcx = W/2, bcy = 72, br = 38;
+    ctx.beginPath(); ctx.arc(bcx,bcy,br,0,Math.PI*2);
+    ctx.fillStyle = 'rgba(228,215,120,0.92)'; ctx.fill();
+    ctx.strokeStyle='rgba(160,138,50,0.8)'; ctx.lineWidth=2; ctx.stroke();
+    const seams: number[][][] = [
+      [[bcx-14,bcy-30],[bcx-18,bcy-18],[bcx-14,bcy-6],[bcx-18,bcy+6],[bcx-14,bcy+18],[bcx-18,bcy+28]],
+      [[bcx+14,bcy-30],[bcx+18,bcy-18],[bcx+14,bcy-6],[bcx+18,bcy+6],[bcx+14,bcy+18],[bcx+18,bcy+28]],
+    ];
+    ctx.strokeStyle='rgba(190,30,30,0.85)'; ctx.lineWidth=2.2; ctx.lineJoin='round';
+    seams.forEach(pts => {
+      ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
+      pts.slice(1).forEach(p => ctx.lineTo(p[0],p[1]));
+      ctx.stroke();
+    });
+
+    // ══ LAYOUT ═══════════════════════════════════════════════════
+    ctx.textBaseline = 'top';
+
+    // TORNEOS RELÁMPAGO
+    ctx.font = '900 52px "Poppins","Arial Black",Arial';
+    centerText('TORNEOS RELÁMPAGO', 122, WHITE, 3);
+
+    // ENVIGADO
+    ctx.font = '900 90px "Poppins","Arial Black",Arial';
+    centerText('ENVIGADO', 182, GOLD, 5);
+
+    // SOFTBALL
+    ctx.font = '400 15px "Poppins",Arial';
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    const sw_txt = ctx.measureText('S  O  F  T  B  A  L  L').width;
+    ctx.fillText('S  O  F  T  B  A  L  L', (W-sw_txt)/2, 282);
+
+    hline(308, 0.65);
+
+    // ── BADGE RONDA ───────────────────────────────────────────────
+    ctx.font = '900 36px "Poppins","Arial Black",Arial';
+    const btw = ctx.measureText(rondaLabel).width;
+    const padX = 60, padY = 16;
+    const bw = btw + padX*2, bh = 36+padY*2;
+    const bx = (W-bw)/2, by = 322;
+    // Fondo badge
+    rr(bx,by,bw,bh,bh/2);
+    ctx.fillStyle = 'rgba(0,0,0,0.82)'; ctx.fill();
+    ctx.strokeStyle='rgba(245,197,24,0.95)'; ctx.lineWidth=2; ctx.stroke();
+    // Texto badge — centrado exacto dentro del rect
+    ctx.fillStyle = GOLD;
+    ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 2;
+    ctx.strokeText(rondaLabel, bx+padX, by+padY);
+    ctx.fillText(rondaLabel,   bx+padX, by+padY);
+
+    const badgeBottom = by + bh + 14;
+    hline(badgeBottom, 0.2);
+
+    // NOMBRE LOCAL
+    fitCenter(local.toUpperCase(), badgeBottom + 28, 108, 48, WHITE, 5);
+
+    // VS
+    ctx.font = '900 96px "Poppins","Arial Black",Arial';
+    centerText('VS', badgeBottom + 168, GOLD, 5);
+
+    // NOMBRE VISITANTE
+    fitCenter(visitante.toUpperCase(), badgeBottom + 288, 108, 48, WHITE, 5);
+
+    const sepY = badgeBottom + 420;
+    hline(sepY, 0.4);
+
+    // HORA — grande protagonista
+    ctx.font = '900 118px "Poppins","Arial Black",Arial';
+    centerText(horaFmt, sepY + 20, WHITE, 5);
+
+    // FECHA — debajo hora en dorado
+    ctx.font = '900 34px "Poppins","Arial Black",Arial';
+    centerText(fechaStr, sepY + 158, GOLD, 3);
+
+    hline(sepY + 210, 0.4);
+
+    // ── FRANJA INFERIOR ───────────────────────────────────────────
+    const footY = sepY + 220;
+    ctx.font = '700 27px "Poppins","Arial Black",Arial';
+    centerText('POLIDEPORTIVO SUR ENVIGADO', footY + 18, WHITE, 2);
+
+    hline(footY + 60, 0.25, 130);
+
+    ctx.font = '700 26px "Poppins","Arial Black",Arial';
+    const tagline = isFinal ? '¡LA HORA DE LA GLORIA!' : '¡QUE COMIENCE LA ACCION!';
+    centerText(tagline, footY + 70, GOLD, 2);
+
+    ctx.font = '400 17px "Poppins",Arial';
+    ctx.fillStyle = 'rgba(255,255,255,0.65)';
+    const ht = '#TorneosRelampago   #Softball   #Envigado';
+    ctx.fillText(ht, (W - ctx.measureText(ht).width)/2, footY + 112);
+
+    ctx.font = '400 14px "Poppins",Arial';
+    ctx.fillStyle = 'rgba(245,197,24,0.55)';
+    const web = 'torneosrelampagoenvigado.com';
+    ctx.fillText(web, (W - ctx.measureText(web).width)/2, footY + 144);
+
+    // ── Descargar ─────────────────────────────────────────────────
+    const link = document.createElement('a');
+    link.download = `Flayer_${juego.ronda}_${local}_vs_${visitante}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
   };
 
   if (loading) return <div className="text-white p-10 animate-pulse">Cargando detalles del torneo...</div>;
@@ -517,6 +559,10 @@ const TournamentDetail = () => {
                   {isDefined && `${format(new Date(juego.fecha), 'dd MMM', { locale: es }).toUpperCase()} · ${format12h(juego.hora)}`}
                 </div>
                 <div className="pt-2 space-y-2">
+                  <button onClick={() => setReschedulingJuego(juego)}
+                    className="w-full flex items-center justify-center gap-2 bg-neutral-700 hover:bg-neutral-600 border border-neutral-600 text-white py-2 rounded-xl text-xs font-bold transition-all">
+                    <CalendarClock className="w-3 h-3" /> REPROGRAMAR PARTIDO
+                  </button>
                   <button onClick={() => copyFlyerText(juego)} disabled={!isDefined}
                     className="w-full flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white py-2 rounded-xl text-xs font-bold transition-all disabled:opacity-30">
                     <Send className="w-3 h-3" /> COPIAR MENSAJE
@@ -615,6 +661,13 @@ const TournamentDetail = () => {
       <EditFinalModal
         isOpen={isFinalModalOpen}
         onClose={() => setIsFinalModalOpen(false)}
+        torneo={torneo}
+        onUpdate={fetchTorneo}
+      />
+      <RescheduleModal
+        isOpen={!!reschedulingJuego}
+        onClose={() => setReschedulingJuego(null)}
+        juego={reschedulingJuego}
         torneo={torneo}
         onUpdate={fetchTorneo}
       />
